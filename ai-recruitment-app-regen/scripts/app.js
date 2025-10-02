@@ -3883,7 +3883,7 @@ Object.assign(Views, {
                 ]
               )
             : question.key === "skills"
-            ? createSkillsInput(answers[question.key] || [], (newSkills) => {
+            ? Views.createSkillsInput(answers[question.key] || [], (newSkills) => {
                 answers[question.key] = newSkills;
               })
             : question.type === "multi-select"
