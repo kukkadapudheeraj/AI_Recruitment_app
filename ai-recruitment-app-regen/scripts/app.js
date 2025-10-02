@@ -78,9 +78,14 @@ const PasswordSecurity = {
    */
   async hashPassword(password, salt = null) {
     try {
+      // Check if Web Crypto API is available
+      if (!window.crypto || !window.crypto.subtle) {
+        throw new Error("Web Crypto API not available - using fallback");
+      }
+
       // Generate salt if not provided
       if (!salt) {
-        salt = crypto.getRandomValues(new Uint8Array(16));
+        salt = window.crypto.getRandomValues(new Uint8Array(16));
       } else if (typeof salt === "string") {
         // Convert string salt back to Uint8Array
         salt = new Uint8Array(salt.split(",").map(Number));
@@ -88,7 +93,7 @@ const PasswordSecurity = {
 
       // Import password as key material
       const encoder = new TextEncoder();
-      const keyMaterial = await crypto.subtle.importKey(
+      const keyMaterial = await window.crypto.subtle.importKey(
         "raw",
         encoder.encode(password),
         { name: "PBKDF2" },
@@ -97,7 +102,7 @@ const PasswordSecurity = {
       );
 
       // Derive key using PBKDF2
-      const derivedBits = await crypto.subtle.deriveBits(
+      const derivedBits = await window.crypto.subtle.deriveBits(
         {
           name: "PBKDF2",
           salt: salt,
@@ -119,6 +124,53 @@ const PasswordSecurity = {
       };
     } catch (error) {
       console.error("Password hashing failed:", error);
+
+      // Fallback to simple hashing if Web Crypto API fails
+      if (error.message.includes("Web Crypto API not available")) {
+        console.warn("Using fallback password hashing method");
+        return this.fallbackHashPassword(password, salt);
+      }
+
+      throw new Error("Password hashing failed. Please try again.");
+    }
+  },
+
+  /**
+   * Fallback password hashing for when Web Crypto API is not available
+   * @param {string} password - Plain text password
+   * @param {string} salt - Salt for hashing (optional)
+   * @returns {Object} Object containing hashed password and salt
+   */
+  fallbackHashPassword(password, salt = null) {
+    try {
+      // Generate simple salt if not provided
+      if (!salt) {
+        salt =
+          Math.random().toString(36).substring(2, 15) +
+          Math.random().toString(36).substring(2, 15);
+      } else if (typeof salt !== "string") {
+        salt = Array.from(salt).join(",");
+      }
+
+      // Simple hash using built-in methods (not cryptographically secure, but functional)
+      let hash = 0;
+      const saltedPassword = password + salt;
+
+      for (let i = 0; i < saltedPassword.length; i++) {
+        const char = saltedPassword.charCodeAt(i);
+        hash = (hash << 5) - hash + char;
+        hash = hash & hash; // Convert to 32-bit integer
+      }
+
+      // Convert to hex and pad
+      const hashedPassword = Math.abs(hash).toString(16).padStart(8, "0");
+
+      return {
+        hashedPassword,
+        salt: salt,
+      };
+    } catch (error) {
+      console.error("Fallback password hashing failed:", error);
       throw new Error("Password hashing failed. Please try again.");
     }
   },
@@ -139,7 +191,18 @@ const PasswordSecurity = {
       return newHash === hashedPassword;
     } catch (error) {
       console.error("Password verification failed:", error);
-      return false;
+
+      // Try fallback verification
+      try {
+        const { hashedPassword: fallbackHash } = this.fallbackHashPassword(
+          password,
+          salt
+        );
+        return fallbackHash === hashedPassword;
+      } catch (fallbackError) {
+        console.error("Fallback verification also failed:", fallbackError);
+        return false;
+      }
     }
   },
 
